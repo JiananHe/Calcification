@@ -60,12 +60,12 @@ def bicubic(img, ratio, a):
     for c in range(C):
         for j in range(dH):
             for i in range(dW):
-                x, y = i * h + 2, j * h + 2
+                x, y = i * h + 2, j * h + 2  # 原图像中的点的坐标
 
-                x1 = 1 + x - math.floor(x)
-                x2 = x - math.floor(x)
-                x3 = math.floor(x) + 1 - x
-                x4 = math.floor(x) + 2 - x
+                x1 = 1 + x - math.floor(x)  # 1/1.5
+                x2 = x - math.floor(x)      # 0/0.5
+                x3 = math.floor(x) + 1 - x  # 1/0.5
+                x4 = math.floor(x) + 2 - x  # 2/1.5
 
                 y1 = 1 + y - math.floor(y)
                 y2 = y - math.floor(y)
@@ -97,10 +97,12 @@ def bicubic(img, ratio, a):
 img = cv2.imread('butterfly.png')
 
 # Scale factor
-ratio = 2
+ratio = 4
 # Coefficient
 a = -1 / 2
 
 dst = bicubic(img, ratio, a)
+
+# assert (dst != img).any()
 print('Completed!')
 cv2.imwrite('bicubic_butterfly.png', dst)

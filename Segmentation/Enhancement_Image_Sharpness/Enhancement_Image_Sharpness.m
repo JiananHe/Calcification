@@ -23,18 +23,18 @@ warning off
 % Start of Program
 
 % Enter the flowchart of the proposed method
-disp('Browse the Flowchart of the Proposed method')
-[flowchart , pathname]= uigetfile('*.bmp;*.BMP;*.tif;*.TIF;*.jpg;*.gif','Browse the Proposed method Flowchart'); 
-flow_chart=imread(char(flowchart));
-imshow(flow_chart);
-title('Flowchart of the Proposed Method');
-disp('Press Any Key To Continue')
-pause
+% disp('Browse the Flowchart of the Proposed method')
+% [flowchart , pathname]= uigetfile('*.bmp;*.BMP;*.tif;*.TIF;*.jpg;*.gif','Browse the Proposed method Flowchart'); 
+% flow_chart=imread(strcat(pathname, flowchart));
+% imshow(flow_chart);
+% title('Flowchart of the Proposed Method');
+% disp('Press Any Key To Continue')
+% pause
 
 %Acquiring Input Image
 disp('Browse the Image to be Processed')
 [satellite_image , pathname]= uigetfile('*.bmp;*.BMP;*.tif;*.TIF;*.jpg;*.gif','Browse a Satellite Image for SSI Filtering'); 
-Image=imread(char(satellite_image));
+Image=imread(strcat(pathname, satellite_image));
 
 
 %Displaying Input Image 
@@ -179,11 +179,11 @@ SSI=SSIt;
 disp('                                                                                                     ')
 % disp('Program is Filtering Image by Applying SSI Filter...........')
 After_SSI=imfilter(Double_Converted_Image,SSI);
-% disp('Image has been Filtered Out after Applying SSI Filter')
-% figure,imshow(After_SSI);
-% title('Image after SSI Filtering to Double Conveted Image');
-%msgbox('After SSI Filtering')
-% impixelregion;
+disp('Image has been Filtered Out after Applying SSI Filter')
+figure,imshow(After_SSI);
+title('Image after SSI Filtering to Double Conveted Image');
+msgbox('After SSI Filtering')
+impixelregion;
 
 rgbImage=Image;
 
