@@ -1,4 +1,5 @@
 import cv2
+import os
 import numpy as np
 import itertools
 
@@ -8,10 +9,10 @@ def reade_mask_img(file_path):
     :param file_path: path of mask image
     :return: a 2D numpy array
     """
-    mask_img = cv2.imread(file_path)
+    mask_img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
     if len(mask_img.shape) == 3:
         mask_img = cv2.cvtColor(mask_img, cv2.COLOR_RGB2GRAY)
-    print(mask_img.shape)
+    # print(mask_img.shape)
     return mask_img
 
 
@@ -128,7 +129,7 @@ def floyd_min_dist(adjacency_matrix):
 
 def dfs_max_subgraph(adjacency_matrix):
     """
-    get the number of vertexes in every sub-graph with DFS algorithm
+    get the number of vertexes in each sub-graph with DFS algorithm
     :param adjacency_matrix:
     :return: a list
     """
@@ -222,16 +223,40 @@ def graph_features_extractor(adjacency_matrix):
     return graph_features
 
 
-if __name__ == "__main__":
-    test_img_path = r"C:\Users\13249\Desktop\20200115-20200205\Calcification\Classification\MC\M_111_LCC_mask.bmp"
-    mask_img = reade_mask_img(test_img_path)
+def feature_extractor_main(mask_path):
+    """
+    main function
+    :param mask_path: path of mask image
+    :return: a feature list (512, )
+    """
+    mask_img = reade_mask_img(mask_path)
     contours_list = initial_connected_component(mask_img)
 
-    all_graph_features = {}
+    all_graph_features = []
     for dilate_rate in range(1, 65):
         dilated_component_list = dilate_component(mask_img.shape, contours_list, 1, False)
         ad_matrix = graph_generator(mask_img.shape, dilated_component_list)
         graph_features = graph_features_extractor(ad_matrix)
-        all_graph_features[dilate_rate] = graph_features
+        all_graph_features += graph_features.values()
 
-    print(all_graph_features)
+    return all_graph_features
+
+
+if __name__ == "__main__":
+    mask_path = r"C:\Users\13249\Desktop\20200115-20200205\Calcification\Data\PrivateData\ROIs_seg"
+    benign_mask_path = os.path.join(mask_path, "benign")
+    malignant_mask_path = os.path.join(mask_path, "malignant")
+    benign_features = []
+    malignant_features = []
+
+    for benign_case in os.listdir(benign_mask_path)[:10]:
+        print("benign %s" % benign_case)
+        benign_features.append(feature_extractor_main(os.path.join(benign_mask_path, benign_case)))
+
+    for malignant_case in os.listdir(malignant_mask_path)[:10]:
+        print("malignant %s" % malignant_case)
+        malignant_features.append(feature_extractor_main(os.path.join(malignant_mask_path, malignant_case)))
+
+    benign_features = np.array(benign_features)
+    malignant_features = np.array(malignant_features)
+    print(benign_features.shape, malignant_features.shape)
