@@ -125,9 +125,9 @@ def morphology_filter(img, diff_img, show=True, winname=None):
         if (diff_img[label_img == i] == 0).all():
             diff_img_binary = np.where(label_img == i, 0, diff_img_binary)
 
-    # diff_img_binary = morphology.binary_erosion(diff_img_binary)
+    diff_img_binary = morphology.binary_erosion(diff_img_binary)
     diff_img_binary = morphology.remove_small_objects(diff_img_binary.astype(np.bool), 1, connectivity=2) + 0
-    # diff_img_binary = morphology.binary_dilation(diff_img_binary)
+    diff_img_binary = morphology.binary_dilation(diff_img_binary)
 
     if show:
         cv2.imshow("removed-%s" % winname, diff_img_binary + .0)
@@ -155,6 +155,8 @@ def segment_main(img_path, show=False):
     # get the final segmentation
     segmentation = seg0 + seg1
     segmentation = np.where(segmentation > 0, 255, segmentation).astype(np.uint8)
+    _, num_components = measure.label(segmentation, return_num=True, connectivity=2)
+    print(num_components)
 
     # show segmentation overlay
     if show:
@@ -169,7 +171,7 @@ def segment_main(img_path, show=False):
         cv2.imshow("overlay", overlay)
         cv2.waitKey(0)
 
-    return segmentation
+    return segmentation, num_components
 
 
 if __name__ == "__main__":
@@ -180,18 +182,20 @@ if __name__ == "__main__":
     benign_seg_save_path = os.path.join(seg_save_path, "benign")
     malignant_seg_save_path = os.path.join(seg_save_path, "malignant")
 
-    segment_main(os.path.join(benign_rois_path, "B_12RMLO.png"), True)
+    # segment_main(os.path.join(benign_rois_path, "B_90RMLO.png"), True)
 
-    # for benign_case in os.listdir(benign_rois_path):
-    #     if benign_case[-3:] != "png" or os.path.exists(os.path.join(benign_seg_save_path, benign_case)):
-    #         continue
-    #     print("benign %s" % benign_case)
-    #     segmentation = segment_main(os.path.join(benign_rois_path, benign_case), False)
-    #     cv2.imwrite(os.path.join(benign_seg_save_path, benign_case), segmentation)
-    #
-    # for malignant_case in os.listdir(malignant_rois_path):
-    #     if malignant_case[-3:] != "png" or os.path.exists(os.path.join(malignant_seg_save_path, malignant_case)):
-    #         continue
-    #     print("malignant %s" % malignant_case)
-    #     segmentation = segment_main(os.path.join(malignant_rois_path, malignant_case), False)
-    #     cv2.imwrite(os.path.join(malignant_seg_save_path, malignant_case), segmentation)
+    for benign_case in os.listdir(benign_rois_path):
+        if benign_case[-3:] != "png" or os.path.exists(os.path.join(benign_seg_save_path, benign_case)):
+            continue
+        print("benign %s" % benign_case)
+        segmentation, num_components = segment_main(os.path.join(benign_rois_path, benign_case), False)
+        if num_components < 80:
+            cv2.imwrite(os.path.join(benign_seg_save_path, benign_case), segmentation)
+
+    for malignant_case in os.listdir(malignant_rois_path):
+        if malignant_case[-3:] != "png" or os.path.exists(os.path.join(malignant_seg_save_path, malignant_case)):
+            continue
+        print("malignant %s" % malignant_case)
+        segmentation, num_components = segment_main(os.path.join(malignant_rois_path, malignant_case), False)
+        if num_components < 80:
+            cv2.imwrite(os.path.join(malignant_seg_save_path, malignant_case), segmentation)
