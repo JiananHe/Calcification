@@ -3,6 +3,8 @@ import h5py
 import os
 import numpy as np
 import itertools
+from time import ctime
+import threading
 import networkx
 
 
@@ -81,21 +83,16 @@ def dilate_component(shape, contours_list, dilate_rate, draw=False):
     return dilated_component_list
 
 
-def graph_generator(shape, components, old_ad_matric):
+def graph_generator(shape, components):
     """
     generate a graph, every component is a vertex and the connections between components determine the edges.
     also return a networkx.Graph
     :param shape: the shape of mask image
     :param components: a list of components
-    :param old_ad_matric
     :return: the adjacent matrix of the graph
     """
     num_components = len(components)
-    if old_ad_matric is None:
-        ad_matrix = np.zeros((num_components, num_components), dtype=np.uint8)
-    else:
-        ad_matrix = old_ad_matric.copy()
-
+    ad_matrix = np.zeros((num_components, num_components), dtype=np.uint8)
     kx_G = networkx.Graph()
     kx_G.add_nodes_from(list(range(num_components)))
 
@@ -110,9 +107,6 @@ def graph_generator(shape, components, old_ad_matric):
     # check whether two components are connected
     for i in range(num_components):
         for j in range(i + 1, num_components):
-            # two components that have already connected must connect with current dilation rate
-            if ad_matrix[i, j] == 1:
-                continue
             if np.min(components[i][:, :, 0]) > np.max(components[j][:, :, 0]) \
                     or np.min(components[j][:, :, 0]) > np.max(components[i][:, :, 0])\
                     or np.min(components[i][:, :, 1]) > np.max(components[j][:, :, 1])\
@@ -162,6 +156,7 @@ def graph_features_extractor(adjacency_matrix, kx_G):
     graph_features["Average Vertex Eccentricity"] = np.sum(kx_eccentricity) / num_vertexes
     graph_features["Diameter"] = np.max(kx_eccentricity)
 
+
     # clustering coefficient
     kx_clustering_coefficient = []
     for s in range(len(subgraphs)):
@@ -172,6 +167,38 @@ def graph_features_extractor(adjacency_matrix, kx_G):
     graph_features["Average Clustering Coefficient"] = np.sum(kx_clustering_coefficient) / num_vertexes
 
     return graph_features
+
+
+def feature_extractor_thread(shape, contours_list, dilate_rate, show):
+    # print('start at', ctime())
+    dilated_component_list = dilate_component(shape, contours_list, dilate_rate, show)
+    ad_matrix, kx_G = graph_generator(shape, dilated_component_list)
+    graph_features = graph_features_extractor(ad_matrix, kx_G)
+
+    return graph_features
+
+
+def feature_extractor_exec(shape, contours_list, dilate_rate_out, show):
+    graph_features = []
+    for i in range(1, 9):
+        dict = feature_extractor_thread(shape, contours_list, 8 * dilate_rate_out + i, show)
+        graph_features += dict.values()
+    return graph_features
+
+
+class MyThread(threading.Thread):
+    def __init__(self, func, args, name=''):
+        threading.Thread.__init__(self)
+        self.name = name
+        self.func = func
+        self.args = args
+        self.result = self.func(*self.args)
+
+    def get_result(self):
+        try:
+            return self.result
+        except Exception:
+            return None
 
 
 def feature_extractor_main(mask_path, show=False):
@@ -186,19 +213,30 @@ def feature_extractor_main(mask_path, show=False):
     print("number of components %d" % len(contours_list))
 
     all_graph_features = []
-    old_ad_matric = None
-    for dilate_rate in range(1, 65):
-        dilated_component_list = dilate_component(mask_img.shape, contours_list, dilate_rate, show)
-        ad_matrix, kx_G = graph_generator(mask_img.shape, dilated_component_list, old_ad_matric)
-        graph_features = graph_features_extractor(ad_matrix, kx_G)
-        all_graph_features += graph_features.values()
-        old_ad_matric = ad_matrix
+    threads = []
+    for dilate_rate_out in range(0, 8):
+        t = MyThread(feature_extractor_exec, (mask_img.shape, contours_list, dilate_rate_out, show),
+                     feature_extractor_exec.__name__)
+        threads.append(t)
 
-        if graph_features["Number of Subgraphs"] == 1:  # the topological features would not change any more when dilating more
-            for i in range(dilate_rate+1, 65):
-                all_graph_features += graph_features.values()
-            break
+        # dilated_component_list = dilate_component(mask_img.shape, contours_list, dilate_rate, show)
+        # ad_matrix, kx_G = graph_generator(mask_img.shape, dilated_component_list)
+        # graph_features = graph_features_extractor(ad_matrix, kx_G)
 
+        # all_graph_features += graph_features.values()
+
+        # if graph_features["Number of Subgraphs"] == 1:  # the topological features would not change any more when dilating more
+        #     for i in range(dilate_rate+1, 65):
+        #         all_graph_features += graph_features.values()
+        #     break
+
+    for i in range(0, 8):  # start threads 此处并不会执行线程，而是将任务分发到每个线程，同步线程。等同步完成后再开始执行start方法
+        threads[i].start()
+    for i in range(0, 8):  # jion()方法等待线程完成
+        threads[i].join()
+
+    for i in range(0, 8):
+        all_graph_features += threads[i].get_result()
     assert len(all_graph_features) == 512 and None not in all_graph_features
     return all_graph_features
 
