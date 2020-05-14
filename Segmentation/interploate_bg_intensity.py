@@ -2,10 +2,11 @@ import cv2
 import numpy as np
 import skimage.morphology as morphology
 import skimage.measure as measure
+from skimage.transform import resize
 import os
 
 min_cal_area = 3
-low_density_thresh = 1000  # Calcification would not appear in low-density areas with a intensity below this value
+low_density_thresh = 1200  # Calcification would not appear in low-density areas with a intensity below this value
 
 
 def bilinear_interpolate(P, H, W):
@@ -106,7 +107,7 @@ def morphology_filter(img, diff_img, show=True, winname=None):
         max_intensity = np.max(img[label_img == i])
 
         if area <= min_cal_area or area != filled_area or \
-                (max_intensity < min_cal_thresh and region_median(img, centre_point, 25) < low_density_thresh):
+                (max_intensity < min_cal_thresh or region_median(img, centre_point, 30) < low_density_thresh):
             diff_img_binary = np.where(label_img == i, 0, diff_img_binary)
             diff_img = np.where(label_img == i, 0, diff_img)
 
@@ -145,15 +146,18 @@ def segment_main(img_path, show=False):
     img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
 
     # get background intensity (twice to enhance robust)
-    bg_intensity = background_intensity(img, zero_start=True, local_size=15)
-    bg_intensity_1 = background_intensity(img, zero_start=False, local_size=15)
+    # bg_intensity = background_intensity(img, zero_start=True, local_size=15)
+    bg_intensity = resize(img, (img.shape[0]//16, img.shape[1]//16), preserve_range=True)
+    bg_intensity = resize(bg_intensity, img.shape, order=3, preserve_range=True)
+    # bg_intensity_1 = background_intensity(img, zero_start=False, local_size=15)
 
     # get segmentation based on different image
     seg0 = morphology_filter(img, img - bg_intensity, show, winname="0")
-    seg1 = morphology_filter(img, img - bg_intensity_1, show, winname="1")
+    # seg1 = morphology_filter(img, img - bg_intensity_1, show, winname="1")
 
     # get the final segmentation
-    segmentation = seg0 + seg1
+    # segmentation = seg0 + seg1
+    segmentation = seg0
     segmentation = np.where(segmentation > 0, 255, segmentation).astype(np.uint8)
     _, num_components = measure.label(segmentation, return_num=True, connectivity=2)
     print(num_components)
@@ -161,6 +165,7 @@ def segment_main(img_path, show=False):
     # show segmentation overlay
     if show:
         cv2.imshow("image", (img - np.min(img)) / (np.max(img) - np.min(img)))
+        cv2.imshow("bg", (bg_intensity - np.min(bg_intensity)) / (np.max(bg_intensity) - np.min(bg_intensity)))
         cv2.imshow("segmentation", segmentation)
         img = ((img - np.min(img)) / (np.max(img) - np.min(img)) * 255 + 0.5).astype(np.uint8)
         overlay = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -182,13 +187,15 @@ if __name__ == "__main__":
     benign_seg_save_path = os.path.join(seg_save_path, "benign")
     malignant_seg_save_path = os.path.join(seg_save_path, "malignant")
 
-    # segment_main(os.path.join(benign_rois_path, "B_90RMLO.png"), True)
+    # segment_main(os.path.join(benign_rois_path, "B_7RMLO.png"), True)
 
-    for benign_case in os.listdir(benign_rois_path):
+    benign_cases = os.listdir(benign_rois_path)
+    np.random.shuffle(benign_cases)
+    for benign_case in benign_cases:
         if benign_case[-3:] != "png" or os.path.exists(os.path.join(benign_seg_save_path, benign_case)):
             continue
         print("benign %s" % benign_case)
-        segmentation, num_components = segment_main(os.path.join(benign_rois_path, benign_case), False)
+        segmentation, num_components = segment_main(os.path.join(benign_rois_path, benign_case), True)
         if num_components < 80:
             cv2.imwrite(os.path.join(benign_seg_save_path, benign_case), segmentation)
 

@@ -3,6 +3,7 @@ import h5py
 import os
 import numpy as np
 import itertools
+import networkx
 
 
 def reade_mask_img(file_path):
@@ -83,14 +84,19 @@ def dilate_component(shape, contours_list, dilate_rate, draw=False):
 def graph_generator(shape, components):
     """
     generate a graph, every component is a vertex and the connections between components determine the edges.
+    also return a networkx.Graph
     :param shape: the shape of mask image
     :param components: a list of components
     :return: the adjacent matrix of the graph
     """
     num_components = len(components)
     ad_matrix = np.zeros((num_components, num_components), dtype=np.uint8)
+    kx_G = networkx.Graph()
+    kx_G.add_nodes_from(list(range(num_components)))
+
     dilate_img = np.zeros((num_components, shape[0], shape[1]), dtype=np.uint8)
     dilate_area = np.zeros(num_components)
+
     for i in range(num_components):
         comp = components[i]
         cv2.fillPoly(dilate_img[i], [comp], 255)
@@ -106,8 +112,9 @@ def graph_generator(shape, components):
                 continue
             if dilate_area[i] + dilate_area[j] > len(np.where((dilate_img[i] + dilate_img[j]) != 0)[0]):
                 ad_matrix[i, j] = ad_matrix[j, i] = 1
+                kx_G.add_edge(i, j)
 
-    return ad_matrix
+    return ad_matrix, kx_G
 
 
 def floyd_min_dist(adjacency_matrix, subgraph_vertexes):
@@ -170,10 +177,11 @@ def dfs_max_subgraph(adjacency_matrix):
     return subgraph_vertexes, subgraph_length
 
 
-def graph_features_extractor(adjacency_matrix):
+def graph_features_extractor(adjacency_matrix, kx_G):
     """
     generate graph features according to the adjacency matrix
     :param adjacency_matrix:
+    :param kx_G:
     :return: graph features
     """
     graph_features = {}
@@ -188,28 +196,32 @@ def graph_features_extractor(adjacency_matrix):
     graph_features["Maximum Vertex Degree"] = np.max(degree_matrix)
 
     # normalized laplacian matrix
-    normalized_laplacian_matrix = np.zeros(adjacency_matrix.shape)
-    for i in range(num_vertexes):
-        for j in range(i, num_vertexes):
-            if i == j and degree_matrix[i, j] != 0:
-                normalized_laplacian_matrix[i, j] = 1
-            elif adjacency_matrix[i, j] == 1:
-                if degree_matrix[i, i] == 0 or degree_matrix[j, j] == 0:
-                    normalized_laplacian_matrix[i, j] = normalized_laplacian_matrix[j, i] = 0
-                else:
-                    normalized_laplacian_matrix[i, j] = normalized_laplacian_matrix[j, i] \
-                        = -1 / (np.sqrt(degree_matrix[i, i] * degree_matrix[j, j]))
-
-    eigenvalues, _ = np.linalg.eig(normalized_laplacian_matrix)
-    eigenvalues = np.round(eigenvalues, 8)
-    assert (0 <= eigenvalues).all() and (eigenvalues <= 2).all()
-    num_subgraphs = np.sum(eigenvalues == 0)
-    assert num_subgraphs > 0
-    graph_features["Number of Subgraphs"] = num_subgraphs
+    # normalized_laplacian_matrix = np.zeros(adjacency_matrix.shape)
+    # for i in range(num_vertexes):
+    #     for j in range(i, num_vertexes):
+    #         if i == j and degree_matrix[i, j] != 0:
+    #             normalized_laplacian_matrix[i, j] = 1
+    #         elif adjacency_matrix[i, j] == 1:
+    #             if degree_matrix[i, i] == 0 or degree_matrix[j, j] == 0:
+    #                 normalized_laplacian_matrix[i, j] = normalized_laplacian_matrix[j, i] = 0
+    #             else:
+    #                 normalized_laplacian_matrix[i, j] = normalized_laplacian_matrix[j, i] \
+    #                     = -1 / (np.sqrt(degree_matrix[i, i] * degree_matrix[j, j]))
+    #
+    # eigenvalues, _ = np.linalg.eig(normalized_laplacian_matrix)
+    # eigenvalues = np.round(eigenvalues, 8)
+    # assert (0 <= eigenvalues).all() and (eigenvalues <= 2).all()
+    # num_subgraphs = np.sum(eigenvalues == 0)
+    # assert num_subgraphs > 0
+    # graph_features["Number of Subgraphs"] = num_subgraphs
 
     # Connected Component
     subgraph_vertexes, subgraph_length = dfs_max_subgraph(adjacency_matrix)
-    assert len(subgraph_vertexes) == num_subgraphs
+    graph_features["Number of Subgraphs"] = len(subgraph_vertexes)
+    subgraphs = [kx_G.subgraph(c).copy() for c in networkx.algorithms.components.connected_components(kx_G)]
+    assert len(subgraph_vertexes) == len(subgraphs)
+
+    # assert len(subgraph_vertexes) == num_subgraphs
     graph_features["Giant Connected Component Ratio"] = np.max(subgraph_length) / num_vertexes
     graph_features["Percentage of Isolated Points"] = np.sum(np.array(subgraph_length) == 1) / num_vertexes
 
@@ -219,8 +231,14 @@ def graph_features_extractor(adjacency_matrix):
 
     # eccentricity
     eccentricity = np.max(shortest_distances, axis=0)
+    kx_eccentricity = []
+    for s in range(len(subgraphs)):
+        ecc = networkx.algorithms.distance_measures.eccentricity(subgraphs[s])
+        kx_eccentricity += [i for i in ecc.values()]
+    assert np.all(sorted(np.array(kx_eccentricity)) == sorted(eccentricity))
     graph_features["Average Vertex Eccentricity"] = np.sum(eccentricity) / num_vertexes
     graph_features["Diameter"] = np.max(eccentricity)
+
 
     # clustering coefficient
     clustering_coefficient = np.zeros(num_vertexes)
@@ -233,6 +251,12 @@ def graph_features_extractor(adjacency_matrix):
             clustering_coefficient[i] = sum(adjacency_matrix[i] for i in itertools.product(neighbors, neighbors))
             # divided by the number of possible edges between the neighbors of vertex i
             clustering_coefficient[i] /= len(neighbors) * (len(neighbors) - 1)
+    kx_clustering_coefficient = []
+    for s in range(len(subgraphs)):
+        coe = networkx.algorithms.cluster.clustering(subgraphs[s])
+        kx_clustering_coefficient += [i for i in coe.values()]
+    assert np.all(sorted(np.array(kx_clustering_coefficient)) == sorted(clustering_coefficient))
+
     graph_features["Average Clustering Coefficient"] = np.sum(clustering_coefficient) / num_vertexes
 
     return graph_features
@@ -251,9 +275,10 @@ def feature_extractor_main(mask_path, show=False):
 
     all_graph_features = []
     for dilate_rate in range(1, 65):
-        dilated_component_list = dilate_component(mask_img.shape, contours_list, 1, show)
-        ad_matrix = graph_generator(mask_img.shape, dilated_component_list)
-        graph_features = graph_features_extractor(ad_matrix)
+        print(dilate_rate)
+        dilated_component_list = dilate_component(mask_img.shape, contours_list, dilate_rate, show)
+        ad_matrix, kx_G = graph_generator(mask_img.shape, dilated_component_list)
+        graph_features = graph_features_extractor(ad_matrix, kx_G)
         all_graph_features += graph_features.values()
 
     return all_graph_features
@@ -267,11 +292,11 @@ if __name__ == "__main__":
     malignant_features = []
 
     # Test one mask with one  dilate rate
-    # mask_img = reade_mask_img(os.path.join(malignant_mask_path, "M_11RCC.png"))
-    # contours_list = initial_connected_component(mask_img)
-    # dilated_component_list = dilate_component(mask_img.shape, contours_list, 20, True)
-    # ad_matrix = graph_generator(mask_img.shape, dilated_component_list)
-    # graph_features = graph_features_extractor(ad_matrix)
+    mask_img = reade_mask_img(os.path.join(benign_mask_path, "B_100RMLO.png"))
+    contours_list = initial_connected_component(mask_img)
+    dilated_component_list = dilate_component(mask_img.shape, contours_list, 5, True)
+    ad_matrix, kx_G = graph_generator(mask_img.shape, dilated_component_list)
+    graph_features = graph_features_extractor(ad_matrix, kx_G)
 
     for benign_case in os.listdir(benign_mask_path):
         print("benign %s" % benign_case)
