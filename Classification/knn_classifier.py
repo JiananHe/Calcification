@@ -58,7 +58,7 @@ def find_optim_k(features, targets):
 if __name__ == "__main__":
     training_features, training_targets, valid_features, valid_targets = make_dataset(
         r"C:\Users\13249\Desktop\20200115-20200205\Calcification\Data\PrivateData\Roi_features.h5", split=True)
-    # find_optim_k(features, targets)
+    find_optim_k(training_features, training_targets)
     knn = KNeighborsClassifier(n_neighbors=26, weights="distance")
     knn.fit(training_features, training_targets)
 

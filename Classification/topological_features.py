@@ -2,8 +2,13 @@ import cv2
 import h5py
 import os
 import numpy as np
+from time import time
 import itertools
+from skimage import morphology
 import networkx
+
+
+DIALTE_KERNEL_TYPE = cv2.MORPH_ELLIPSE  # cv2.MORPH_RECT
 
 
 def reade_mask_img(file_path):
@@ -29,7 +34,7 @@ def initial_connected_component(mask_img, ignore_thresh=2, draw=False):
     image_for_draw = cv2.cvtColor(mask_img, cv2.COLOR_GRAY2BGR)
 
     # find contours
-    contours, _ = cv2.findContours(mask_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contours, _ = cv2.findContours(mask_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # extract and split the connected components in mask image, ignore the very tiny calcifications
     contours_list = []
@@ -64,11 +69,13 @@ def dilate_component(shape, contours_list, dilate_rate, draw=False):
         cv2.fillPoly(temp_img, [contour], 255)  # add [] for pts to fill, otherwise only the outline would be drawn
 
         # dilate
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_rate, dilate_rate))
+        kernel = cv2.getStructuringElement(DIALTE_KERNEL_TYPE, (dilate_rate, dilate_rate))
         dilated_img = cv2.dilate(temp_img, kernel, iterations=1)
+        # kernel = morphology.disk(dilate_rate)
+        # dilated_img = morphology.dilation(temp_img, kernel)
 
         # get the board of dilated component
-        new_contours, _ = cv2.findContours(dilated_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        new_contours, _ = cv2.findContours(dilated_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         assert len(new_contours) == 1
         dilated_component_list += new_contours
         if draw:
@@ -183,10 +190,12 @@ def feature_extractor_main(mask_path, show=False):
     """
     mask_img = reade_mask_img(mask_path)
     contours_list = initial_connected_component(mask_img)
+    # assert len(contours_list) == 0
     print("number of components %d" % len(contours_list))
 
     all_graph_features = []
     old_ad_matric = None
+    time_begin = time()
     for dilate_rate in range(1, 65):
         dilated_component_list = dilate_component(mask_img.shape, contours_list, dilate_rate, show)
         ad_matrix, kx_G = graph_generator(mask_img.shape, dilated_component_list, old_ad_matric)
@@ -194,12 +203,8 @@ def feature_extractor_main(mask_path, show=False):
         all_graph_features += graph_features.values()
         old_ad_matric = ad_matrix
 
-        if graph_features["Number of Subgraphs"] == 1:  # the topological features would not change any more when dilating more
-            for i in range(dilate_rate+1, 65):
-                all_graph_features += graph_features.values()
-            break
-
     assert len(all_graph_features) == 512 and None not in all_graph_features
+    print("time: %d s" % (time() - time_begin))
     return all_graph_features
 
 
@@ -219,11 +224,11 @@ if __name__ == "__main__":
 
     for benign_case in os.listdir(benign_mask_path):
         print("benign %s" % benign_case)
-        benign_features.append(feature_extractor_main(os.path.join(benign_mask_path, benign_case)))
+        benign_features.append(feature_extractor_main(os.path.join(benign_mask_path, benign_case), False))
 
     for malignant_case in os.listdir(malignant_mask_path):
         print("malignant %s" % malignant_case)
-        malignant_features.append(feature_extractor_main(os.path.join(malignant_mask_path, malignant_case)))
+        malignant_features.append(feature_extractor_main(os.path.join(malignant_mask_path, malignant_case), False))
 
     benign_features = np.array(benign_features)
     malignant_features = np.array(malignant_features)
