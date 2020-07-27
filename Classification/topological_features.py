@@ -5,6 +5,7 @@ import numpy as np
 from time import time
 import itertools
 from skimage import morphology
+import matplotlib.pyplot as plt
 import networkx
 
 
@@ -208,6 +209,44 @@ def feature_extractor_main(mask_path, show=False):
     return all_graph_features
 
 
+def show_topological(mask_path):
+    mask_img = reade_mask_img(mask_path)
+    contours_list = initial_connected_component(mask_img)
+    # assert len(contours_list) == 0
+    print("number of components %d" % len(contours_list))
+
+    # extract centroid (vertex)
+    vertex_pos = {}
+    vertex_color = []
+    shape = mask_img.shape
+    for i, contour in enumerate(contours_list):
+        temp_img = np.zeros(shape)
+        cv2.fillPoly(temp_img, [contour], 1.0)  # add [] for pts to fill, otherwise only the outline would be drawn
+        zeros_moment = np.sum(temp_img)
+        coord_x, coord_y = np.meshgrid(np.array(range(shape[0])), np.array(range(shape[1])))
+        one_moment_x = np.sum(coord_x * temp_img)
+        one_moment_y = np.sum(coord_y * temp_img)
+        centroid = np.array([one_moment_x / zeros_moment, shape[1] - one_moment_y / zeros_moment], dtype=np.int)
+
+        # cv2.circle(temp_img, tuple(centroid), 2, 0.5)
+        # cv2.imshow("single centroid", temp_img)
+        # cv2.waitKey(0)
+        vertex_pos[i] = centroid
+        vertex_color.append(np.random.rand(3))
+
+    # get adjacency relation (edge). Note that the order of vertex in centroids_list is the same as
+    # the order of component in dilated_component_list
+    old_ad_matric = None
+    for dilate_rate in [2, 4, 8, 16, 32, 64]:
+        dilated_component_list = dilate_component(mask_img.shape, contours_list, dilate_rate)
+        ad_matrix, kx_G = graph_generator(mask_img.shape, dilated_component_list, old_ad_matric)
+
+        # draw
+        networkx.draw_networkx(kx_G, pos=vertex_pos, arrows=False, node_size=150, font_size=7, node_color=np.array(vertex_color))
+        plt.show()
+
+
+
 if __name__ == "__main__":
     mask_path = r"C:\Users\13249\Desktop\20200115-20200205\Calcification\Data\PrivateData\ROIs_seg"
     benign_mask_path = os.path.join(mask_path, "benign")
@@ -216,26 +255,23 @@ if __name__ == "__main__":
     malignant_features = []
 
     # Test one mask with one  dilate rate
-    # mask_img = reade_mask_img(os.path.join(benign_mask_path, "B_100RMLO.png"))
-    # contours_list = initial_connected_component(mask_img)
-    # dilated_component_list = dilate_component(mask_img.shape, contours_list, 5, True)
-    # ad_matrix, kx_G = graph_generator(mask_img.shape, dilated_component_list)
-    # graph_features = graph_features_extractor(ad_matrix, kx_G)
+    # feature_extractor_main("test_image.bmp", True)
+    show_topological("test_image.bmp")
 
-    for benign_case in os.listdir(benign_mask_path):
-        print("benign %s" % benign_case)
-        benign_features.append(feature_extractor_main(os.path.join(benign_mask_path, benign_case), False))
-
-    for malignant_case in os.listdir(malignant_mask_path):
-        print("malignant %s" % malignant_case)
-        malignant_features.append(feature_extractor_main(os.path.join(malignant_mask_path, malignant_case), False))
-
-    benign_features = np.array(benign_features)
-    malignant_features = np.array(malignant_features)
-    print(benign_features.shape, malignant_features.shape)
-
-    # save as h5 file
-    h5f = h5py.File(r"C:\Users\13249\Desktop\20200115-20200205\Calcification\Data\PrivateData\Roi_features.h5", 'w')
-    h5f.create_dataset("benign", data=benign_features)
-    h5f.create_dataset("malignant", data=malignant_features)
-    h5f.close()
+    # for benign_case in os.listdir(benign_mask_path):
+    #     print("benign %s" % benign_case)
+    #     benign_features.append(feature_extractor_main(os.path.join(benign_mask_path, benign_case), True))
+    #
+    # for malignant_case in os.listdir(malignant_mask_path):
+    #     print("malignant %s" % malignant_case)
+    #     malignant_features.append(feature_extractor_main(os.path.join(malignant_mask_path, malignant_case), False))
+    #
+    # benign_features = np.array(benign_features)
+    # malignant_features = np.array(malignant_features)
+    # print(benign_features.shape, malignant_features.shape)
+    #
+    # # save as h5 file
+    # h5f = h5py.File(r"C:\Users\13249\Desktop\20200115-20200205\Calcification\Data\PrivateData\Roi_features.h5", 'w')
+    # h5f.create_dataset("benign", data=benign_features)
+    # h5f.create_dataset("malignant", data=malignant_features)
+    # h5f.close()
